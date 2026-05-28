@@ -1,3 +1,8 @@
+import warnings
+# Suppress EOL and SSL version warnings cleanly at the compiler layer
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*OpenSSL.*")
+
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -53,14 +58,6 @@ def sync_telemetry_to_db():
             }}
         )
 
-# Helper function to read the separate stylesheet file
-def load_local_css(file_name):
-    try:
-        with open(file_name, "r") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-    except FileNotFoundError:
-        pass
-
 # Initialize Session States for Auth & Local Telemetry
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -104,7 +101,7 @@ def extract_pptx_text(file_bytes):
 # ==========================================
 if not st.session_state.authenticated:
     st.title("🦅 VFSTR AI Hub: Academic Command Center")
-    st.write("Welcome! Please register your student account via MongoDB to unlock your custom tool suites.")
+    st.write("Welcome! Please Register .")
     
     auth_mode = st.radio("Choose Action:", ["Sign Up / Register", "Login"])
     
@@ -167,9 +164,6 @@ if not st.session_state.authenticated:
 # AUTHENTICATED COMMAND UTILITIES
 # ==========================================
 else:
-    # Read the style variables out of style.css cleanly
-    load_local_css("style.css")
-
     st.sidebar.title("🦅 VFSTR AI Hub")
     st.sidebar.markdown(f"**👤 Connected Account:** `{st.session_state.username}`")
     
@@ -350,11 +344,9 @@ else:
                 
                 if st.session_state.quiz_submitted:
                     if user_responses[i] == q["correct_answer"]:
-                        correct_html = f'<div class="quiz-feedback-card correct-card"><div class="feedback-header"><span class="feedback-icon">✅</span><span class="feedback-status">Correct!</span></div><p class="feedback-text">{q["explanation"]}</p></div>'
-                        st.markdown(correct_html, unsafe_allow_html=True)
+                        st.success(f"✅ **Correct!** {q['explanation']}")
                     else:
-                        incorrect_html = f'<div class="quiz-feedback-card incorrect-card"><div class="feedback-header"><span class="feedback-icon">❌</span><span class="feedback-status">Incorrect Attempt</span></div><p class="feedback-text">Correct Option: <strong>{q["correct_answer"]}</strong><br>{q["explanation"]}</p></div>'
-                        st.markdown(incorrect_html, unsafe_allow_html=True)
+                        st.error(f"❌ **Incorrect.** Correct Answer: {q['correct_answer']} \n\n {q['explanation']}")
                 st.markdown("<br>", unsafe_allow_html=True)
             
             if not st.session_state.quiz_submitted:
@@ -412,15 +404,17 @@ else:
         else:
             db_topics, db_quizzes, db_codes, db_last_topic = 0, 0, 0, ""
 
-        # Safe single-line execution layout mapping to bypass the multiline parser block glitch
-        grid_html = '<div class="dashboard-flex-container">'
-        grid_html += f'<div class="analytics-card blue-accent"><div class="card-icon">📋</div><div class="card-text-block"><h4 class="card-title">Syllabus Units Planned</h4><p class="card-metric">{db_topics} Units</p></div></div>'
-        grid_html += f'<div class="analytics-card yellow-accent"><div class="card-icon">📝</div><div class="card-text-block"><h4 class="card-title">Quizzes Generated</h4><p class="card-metric">{db_quizzes} Sessions</p></div></div>'
-        grid_html += f'<div class="analytics-card green-accent"><div class="card-icon">💻</div><div class="card-text-block"><h4 class="card-title">Code Debugs Run</h4><p class="card-metric">{db_codes} Scripts</p></div></div>'
-        grid_html += '</div>'
-        
-        # Explicit rendering call
-        st.markdown(grid_html, unsafe_allow_html=True)
+        # Symmetrical native horizontal layout system
+        col1, col2, col3 = st.columns(3, gap="large")
+        with col1:
+            st.markdown("### 📋")
+            st.metric(label="Syllabus Units Planned", value=f"{db_topics} Units")
+        with col2:
+            st.markdown("### 📝")
+            st.metric(label="Quizzes Generated", value=f"{db_quizzes} Sessions")
+        with col3:
+            st.markdown("### 💻")
+            st.metric(label="Code Debugs Run", value=f"{db_codes} Scripts")
         
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### 📈 Live AI Strategy Assessment")
@@ -435,10 +429,18 @@ else:
         else:
             with st.spinner("Gemini is compiling your strategy report metrics..."):
                 last_topic = db_last_topic if db_last_topic else "No external files loaded yet"
-                prompt = f"Act as an elite university academic advisor analyzing real-time student activity. Provide a personalized study strategy review based on these metrics:\n- Syllabus Modules Planned: {db_topics}\n- Practice Quizzes Generated: {db_quizzes}\n- Code Interventions: {db_codes}\n- Last Active Material: {last_topic}\n\nStructure your output with headers for 'Current Session Strengths' and 'Recommended Optimization'."
+                
+                prompt = f"Act as an elite university academic advisor analyzing real-time student activity. Provide a personalized study strategy review based on these metrics:\n- Syllabus Modules Planned: {db_topics}\n- Practice Quizzes Generated: {db_quizzes}\n- Code Interventions: {db_codes}\n- Last Active Material: {last_topic}\n\nStructure your output with headers for 'Current Session Strengths' and 'Recommended Optimization'. Do not repeat exact phrasing from previous runs."
                 try:
-                    response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-                    advisor_html = f'<div class="advisor-wrapper">{response.text}</div>'
-                    st.markdown(advisor_html, unsafe_allow_html=True)
+                    response = client.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.85, # Injects deep dynamic variety on text execution sweeps
+                            top_p=0.95
+                        )
+                    )
+                    st.success("✨ Live AI Assessment Generated Instantly via Gemini 2.5 Flash")
+                    st.info(response.text)
                 except Exception as e:
                     st.info("💡 **Strategy Report Server Refreshing:** The system analytics engine is updating the token buffers. Press 'R' or toggle back in a moment to populate your strategy card!")
