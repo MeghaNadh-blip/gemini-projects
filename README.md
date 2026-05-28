@@ -185,7 +185,6 @@ gemini/
 CSE Student | AI & Full Stack Enthusiast
 
 * [GitHub Profile](https://github.com/MeghaNadh-blip?utm_source=chatgpt.com)
-* [LinkedIn Profile](https://www.linkedin.com/in/meghanadhsai-nalluri-942b97322?utm_source=chatgpt.com)
 
 ---
 
