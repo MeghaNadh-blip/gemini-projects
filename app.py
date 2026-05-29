@@ -3,23 +3,33 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*OpenSSL.*")
 
+import os
 import streamlit as st
 from google import genai
 from google.genai import types
 from PIL import Image
 import PyPDF2
 from pptx import Presentation
+import docx
 import io
 import hashlib
 import json
 from pymongo import MongoClient
+from dotenv import load_dotenv
+
+# Load environment variables from the .env file
+load_dotenv()
 
 # 1. Setup Page Configuration
 st.set_page_config(page_title="VFSTR Academic Command Center", page_icon="🎓", layout="wide")
 
-# 2. Initialize Gemini Client with your API Key
+# 2. Initialize Gemini Client with API Key from the .env file
 try:
-    client = genai.Client(api_key="AIzaSyCkFJRM0zGlo-wVBZBIhM8F5c0Ac3t2AqA")
+    api_key_env = os.getenv("GEMINI_API_KEY")
+    if not api_key_env:
+        st.error("Missing GEMINI_API_KEY variable in your .env file.")
+        st.stop()
+    client = genai.Client(api_key=api_key_env)
 except Exception as e:
     st.error(f"Failed to initialize Gemini Client: {e}")
     st.stop()
@@ -217,34 +227,86 @@ else:
                     except Exception as e:
                         st.error(f"Chat Error: {e}")
 
-    # FEATURE 2: Syllabus Planner
+    # FEATURE 2: Syllabus Planner (UPGRADED VERSION)
     elif choice == "📅 Smart Syllabus Planner":
         st.title("📅 Smart Syllabus & Note Scheduler")
         st.write("Upload or paste your course topics to generate an optimized, step-by-step study plan.")
-        source_type = str(st.radio("Input Method:", ["Paste Text", "Upload File (.txt)"]))
+        
+        source_type = st.radio("Input Method:", ["Paste Text", "Upload Reference Document"])
         syllabus_text = ""
+        uploaded_image = None
+        
         if source_type == "Paste Text":
             syllabus_text = st.text_area("Paste your syllabus or lecture topics here:", height=150)
         else:
-            uploaded_file = st.file_uploader("Choose a text file", type=["txt"])
+            uploaded_file = st.file_uploader(
+                "Choose a syllabus document module", 
+                type=["txt", "pdf", "pptx", "docx", "png", "jpg", "jpeg"]
+            )
+            
             if uploaded_file is not None:
-                syllabus_text = uploaded_file.read().decode("utf-8")
+                file_type = uploaded_file.name.split(".")[-1].lower()
+                
+                with st.spinner("Extracting contents from source material..."):
+                    try:
+                        if file_type == "txt":
+                            syllabus_text = uploaded_file.read().decode("utf-8")
+                            st.success("Successfully loaded text file!")
+                            
+                        elif file_type == "pdf":
+                            syllabus_text = extract_pdf_text(uploaded_file.read())
+                            st.success(f"Successfully extracted text from {uploaded_file.name}!")
+                            
+                        elif file_type == "pptx":
+                            syllabus_text = extract_pptx_text(uploaded_file.read())
+                            st.success(f"Successfully extracted slide data from {uploaded_file.name}!")
+                            
+                        elif file_type == "docx":
+                            doc_file = io.BytesIO(uploaded_file.read())
+                            doc = docx.Document(doc_file)
+                            syllabus_text = "\n".join([para.text for para in doc.paragraphs])
+                            st.success(f"Successfully extracted document text from {uploaded_file.name}!")
+                            
+                        elif file_type in ["png", "jpg", "jpeg"]:
+                            uploaded_image = Image.open(uploaded_file)
+                            st.image(uploaded_image, caption="Uploaded Syllabus Image Reference", width=400)
+                            st.success("Image uploaded successfully! Gemini will look over the visual contents.")
+                    except Exception as parse_err:
+                        st.error(f"Failed to read file contents: {parse_err}")
+
         days = st.slider("Over how many days do you want to study this?", 1, 30, 7)
+        
         if st.button("Generate Study Plan 🚀"):
-            if not syllabus_text.strip():
-                st.warning("Please provide some syllabus text first!")
+            base_prompt = f"Analyze this material and break it down into an efficient {days}-day study schedule. Provide Focus Topic, Core Concepts, and a Quick Practice Task for each day."
+            
+            if not syllabus_text.strip() and uploaded_image is None:
+                st.warning("Please provide some syllabus text or upload a valid file first!")
             else:
                 with st.spinner("Gemini is analyzing your material..."):
-                    prompt = f"Analyze this material and break it down into an efficient {days}-day study schedule. Provide Focus Topic, Core Concepts, and a Quick Practice Task for each day.\n\nMaterial:\n{syllabus_text}"
                     try:
-                        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                        if uploaded_image:
+                            response = client.models.generate_content(
+                                model='gemini-2.5-flash',
+                                contents=[uploaded_image, base_prompt]
+                            )
+                        else:
+                            response = client.models.generate_content(
+                                model='gemini-2.5-flash',
+                                contents=f"{base_prompt}\n\nMaterial:\n{syllabus_text}"
+                            )
+                        
                         st.success("Plan ready!")
                         st.markdown(response.text)
+                        
                         st.session_state.topics_planned += 1
-                        st.session_state.last_analyzed_topic = syllabus_text[:50] + "..."
+                        if uploaded_image:
+                            st.session_state.last_analyzed_topic = f"Visual Syllabus ({uploaded_file.name})"
+                        else:
+                            st.session_state.last_analyzed_topic = syllabus_text[:50] + "..."
                         sync_telemetry_to_db()
+                        
                     except Exception as e:
-                        st.error(f"Error: {e}")
+                        st.error(f"AI Generation Error: {e}")
 
     # FEATURE 3: Quiz Generator
     elif choice == "📝 Automated Quiz Generator":
@@ -436,7 +498,7 @@ else:
                         model='gemini-2.5-flash', 
                         contents=prompt,
                         config=types.GenerateContentConfig(
-                            temperature=0.85, # Injects deep dynamic variety on text execution sweeps
+                            temperature=0.85, 
                             top_p=0.95
                         )
                     )
